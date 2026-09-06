@@ -21,7 +21,7 @@
 1. Chrome ウェブストアで **Tampermonkey** をインストールする
    → https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo
 2. 次のリンクを開く
-   → <INSTALL_URL>
+   → https://raw.githubusercontent.com/KoheiMukogawa/king-of-time-autofill/main/KING_OF_TIME_Holiday_MVP.user.js
 3. 表示された画面で「インストール」を押す
 
 うまくいかないときは [docs/INSTALL.md](docs/INSTALL.md) に詳しい手順があります。
@@ -44,7 +44,7 @@ ONにすることをおすすめします。
 
 ## うまく動かないとき
 
-パネルのタイトルに表示されているバージョン（例: `v0.5.0`）と、
+パネルのタイトルに表示されているバージョン（例: `v0.6.0`）と、
 画面に出ているメッセージを添えて連絡してください。
 
 ## 更新について

@@ -14,7 +14,7 @@ Tampermonkey は、ブラウザに小さなツールを追加するための拡�
 
 ## 2. スクリプトを入れる
 
-1. <INSTALL_URL> を開く
+1. https://raw.githubusercontent.com/KoheiMukogawa/king-of-time-autofill/main/KING_OF_TIME_Holiday_MVP.user.js を開く
 2. Tampermonkey のインストール画面が開く
 3. 「インストール」を押す
 

@@ -1,17 +1,19 @@
 // ==UserScript==
 // @name         KING OF TIME 月間スケジュール申請ヘルパー
 // @namespace    local.kot.helper
-// @version      0.5.0
+// @version      0.6.0
 // @description  月間計画の申請と、申請履歴からの安全な月単位取消を支援します。
 // @match        https://s2.ta.kingoftime.jp/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/KoheiMukogawa/king-of-time-autofill/main/KING_OF_TIME_Holiday_MVP.user.js
+// @downloadURL  https://raw.githubusercontent.com/KoheiMukogawa/king-of-time-autofill/main/KING_OF_TIME_Holiday_MVP.user.js
 // ==/UserScript==
 
 (() => {
   'use strict';
 
-  const SCRIPT_VERSION = '0.5.0';
+  const SCRIPT_VERSION = '0.6.0';
   const DAILY_UI_ID = 'kot-holiday-helper';
   const MONTHLY_UI_ID = 'kot-monthly-preview-helper';
   const BATCH_UI_ID = 'kot-batch-application-helper';
