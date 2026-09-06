@@ -1,0 +1,13 @@
+# WSL が Windows からコピーしたファイルに付ける代替データストリーム
+*:Zone.Identifier
+
+# 公開配布しない調査用アーカイブ
+/KING_OF_TIME_Inspector.zip
+
+node_modules/
+
+# サブエージェント実行の作業ディレクトリ（台帳・レビュー用の一時ファイル）
+.superpowers/
+
+# Claude Code が作る作業用 worktree
+.claude/worktrees/
