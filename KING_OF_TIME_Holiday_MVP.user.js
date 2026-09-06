@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KING OF TIME 月間スケジュール申請ヘルパー
 // @namespace    local.kot.helper
-// @version      0.6.0
+// @version      0.6.1
 // @description  月間計画の申請と、申請履歴からの安全な月単位取消を支援します。
 // @match        https://s2.ta.kingoftime.jp/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const SCRIPT_VERSION = '0.6.0';
+  const SCRIPT_VERSION = '0.6.1';
   const DAILY_UI_ID = 'kot-holiday-helper';
   const MONTHLY_UI_ID = 'kot-monthly-preview-helper';
   const BATCH_UI_ID = 'kot-batch-application-helper';
@@ -820,6 +820,13 @@
 
   // 画面に見せる休憩の要約。設定が未保存・破損のときは「なし」と区別する。
   // 「休憩をとらない」と「設定が読めない」は利用者にとって別の事実のため。
+  // ダイアログの明細を先頭数件に切り詰める。件数が増えると、行動に必要な指示が
+  // リストに押し出されて画面外へ消えるため。
+  function summarizeLines(lines, limit = 3) {
+    if (lines.length <= limit) return lines.join('\n');
+    return `${lines.slice(0, limit).join('\n')}\n…ほか${lines.length - limit}件`;
+  }
+
   function describeBreakSummary(settings) {
     if (!settings) return '未設定';
     if (!settings.breakEnabled) return 'なし';
@@ -2444,10 +2451,19 @@
       selectAllButton.textContent = selectedCount === monthRecords.length && monthRecords.length
         ? '表示中の選択をすべて解除'
         : '表示中をすべて選択';
-      actionButton.textContent = verified
-        ? `選択した${selectedCount}件を一括取消`
-        : `初回確認：選択した${selectedCount}件を取消`;
-      actionButton.disabled = selectedCount === 0 || (!verified && selectedCount !== 1);
+      const blockedByFirstRun = !verified && selectedCount !== 1;
+      actionButton.disabled = selectedCount === 0 || blockedByFirstRun;
+      // 押せないときは理由をボタン自身に出す。パネル上部の説明は
+      // 一覧が長いとスクロールで見えなくなるため、押す場所に理由を置く。
+      if (selectedCount === 0) {
+        actionButton.textContent = '取消する申請を選んでください';
+      } else if (blockedByFirstRun) {
+        actionButton.textContent = `初回は1件だけ選べます（現在${selectedCount}件選択）`;
+      } else {
+        actionButton.textContent = verified
+          ? `選択した${selectedCount}件を一括取消`
+          : '初回確認：1件を取消';
+      }
       actionButton.style.opacity = actionButton.disabled ? '.5' : '1';
       proofNote.style.color = verified ? '#137333' : '#9a5700';
       proofNote.textContent = verified
@@ -2521,21 +2537,19 @@
           throw new Error('初回は取消動作の確認のため1件だけ選択してください。');
         }
         const [yearText, monthText] = monthInput.value.split('-');
-        const phrase = !verified
-          ? `${selectedRecords[0].date.replace(/\/(0?\d{1,2})\/(0?\d{1,2})$/, '年$1月$2日')}をキャンセル`
-          : `${yearText}年${Number(monthText)}月分をキャンセル`;
-        const details = selectedRecords.map((record) => (
+        const details = summarizeLines(selectedRecords.map((record) => (
           `${record.date} ${record.category}${record.requestedTime ? ` ${record.requestedTime}` : ''}`
-        )).join('\n');
-        const confirmation = window.prompt(
-          `${selectedRecords.length}件の処理待ちスケジュール申請を実際に取り消します。\n`
+        )));
+        const approved = window.confirm(
+          `${selectedRecords.length}件の処理待ちスケジュール申請を取り消します。\n\n`
+          + `対象：${yearText}年${Number(monthText)}月\n`
           + '管理者へ取消通知が送られる場合があります。\n\n'
-          + `${details}\n\n実行する場合だけ「${phrase}」と入力してください。`,
-          '',
+          + `${details}\n\n取り消しますか？`,
         );
-        if (confirmation !== phrase) {
+        if (!approved) {
           status.style.color = '#9a5700';
           status.textContent = '取消処理を開始しませんでした。';
+          status.scrollIntoView({ block: 'nearest' });
           return;
         }
         const existingRun = loadCancellationRun();
@@ -3608,11 +3622,12 @@
           throw new Error('「連続申請（自動で実際に申請する）を使う」がOFFです。設定を確認してから、もう一度プレビューを作成してください。');
         }
         const breakSummary = describeBreakSummary(runnerSettings);
-        const details = queue.map((day) => `${day}日 ${shiftsByDay.get(day).label}`).join('\n');
+        const details = summarizeLines(queue.map((day) => `${day}日 ${shiftsByDay.get(day).label}`));
         const confirmation = window.prompt(
-          `次の${queue.length}日を自動で開き、入力後${AUTO_SUBMIT_COUNTDOWN_SECONDS}秒待って実際に申請します。\n`
+          '実行する場合だけ「申請する」と入力してください。\n\n'
+          + `次の${queue.length}日分を自動で開き、入力後${AUTO_SUBMIT_COUNTDOWN_SECONDS}秒待って実際に申請します。\n`
           + `休憩：${breakSummary}\n申請メッセージ：${WORK.remark}\n\n`
-          + `${details}\n\n実行する場合だけ「申請する」と入力してください。`,
+          + `${details}`,
           '',
         );
         if (confirmation !== '申請する') {

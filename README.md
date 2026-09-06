@@ -16,13 +16,18 @@
 - 会社のシステムに何かをインストールしたり、設定を変更したりしません
 - 入力した内容は自分のブラウザの中だけに保存されます。どこにも送信しません
 
-## 導入（3ステップ）
+## 導入（4ステップ）
 
 1. Chrome ウェブストアで **Tampermonkey** をインストールする
    → https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo
-2. 次のリンクを開く
+2. `chrome://extensions` を開き、Tampermonkey の「詳細」→
+   **「ユーザー スクリプトを許可する」をONにする**
+   **これを飛ばすと、あとの手順を全部やっても何も起きません**（エラーも出ません）
+3. 次のリンクを開く
    → https://raw.githubusercontent.com/KoheiMukogawa/king-of-time-autofill/main/KING_OF_TIME_Holiday_MVP.user.js
-3. 表示された画面で「インストール」を押す
+4. 表示された画面で「インストール」を押す
+
+手順2の画面の場所は [docs/INSTALL.md](docs/INSTALL.md) に詳しく書いてあります。
 
 うまくいかないときは [docs/INSTALL.md](docs/INSTALL.md) に詳しい手順があります。
 
@@ -44,7 +49,7 @@ ONにすることをおすすめします。
 
 ## うまく動かないとき
 
-パネルのタイトルに表示されているバージョン（例: `v0.6.0`）と、
+パネルのタイトルに表示されているバージョン（例: `v0.6.1`）と、
 画面に出ているメッセージを添えて連絡してください。
 
 ## 更新について
