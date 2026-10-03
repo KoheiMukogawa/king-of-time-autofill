@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         KING OF TIME 月間スケジュール申請ヘルパー
 // @namespace    local.kot.helper
-// @version      0.6.1
+// @version      0.7.0
 // @description  月間計画の申請と、申請履歴からの安全な月単位取消を支援します。
 // @match        https://s2.ta.kingoftime.jp/*
 // @run-at       document-idle
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const SCRIPT_VERSION = '0.6.1';
+  const SCRIPT_VERSION = '0.7.0';
   const DAILY_UI_ID = 'kot-holiday-helper';
   const MONTHLY_UI_ID = 'kot-monthly-preview-helper';
   const BATCH_UI_ID = 'kot-batch-application-helper';
@@ -47,9 +47,7 @@
     startTime: '#schedule_start_time',
     endDay: '#schedule_end_time_day',
     endTime: '#schedule_end_time',
-    breakStartDay: '#break_start_time_day1',
     breakStartTime: '#break_start_time_1',
-    breakEndDay: '#break_end_time_day1',
     breakEndTime: '#break_end_time_1',
     workDayType: '#select_work_day_type_code',
     leaveType: '#leave_type_code1',
@@ -73,13 +71,11 @@
     remark: 'よろしくお願いいたします。',
   });
 
-  // 未設定の利用者に押し付ける値ではなく、設定画面の初期表示に使う下敷き。
-  // 実際に使う設定は必ず loadUserSettings() から取得する。
+  // 未保存・破損時に使う設定。自動申請は明示的に ON にするまで使わせない。
+  // 休憩は設定しない。シフト制で日ごとに休憩の有無・時刻が違い、打刻時に
+  // KING OF TIME が自動で付けるため。必要な日は申請画面で各自が入力する。
   const DEFAULT_USER_SETTINGS = Object.freeze({
-    version: 1,
-    breakEnabled: true,
-    breakStart: Object.freeze({ hour: 12, minute: 0 }),
-    breakEnd: Object.freeze({ hour: 13, minute: 0 }),
+    version: 2,
     autoSubmitEnabled: false,
   });
 
@@ -357,38 +353,13 @@
     return day === null ? null : { plan, day, shift: shiftsByDay.get(day) };
   }
 
-  function resolveBreakForShift(shift, settings) {
-    if (!settings.breakEnabled) return { enabled: false };
-
-    const start = {
-      hour: settings.breakStart.hour,
-      minute: settings.breakStart.minute,
-      totalMinutes: toTotalMinutes(settings.breakStart),
-    };
-    const end = {
-      hour: settings.breakEnd.hour,
-      minute: settings.breakEnd.minute,
-      totalMinutes: toTotalMinutes(settings.breakEnd),
-    };
-
-    if (shift.start.totalMinutes > start.totalMinutes || shift.end.totalMinutes < end.totalMinutes) {
-      throw new Error(
-        `勤務時間${shift.label}に休憩${formatShiftTime(start)}～${formatShiftTime(end)}を設定できません。`,
-      );
-    }
-
-    return { enabled: true, start, end };
-  }
-
-  function verifyWorkResult(shift, expectedPattern, breakPlan) {
+  function verifyWorkResult(shift, expectedPattern) {
     const pattern = getElement(FIELD.pattern, HTMLSelectElement);
     const startDay = getElement(FIELD.startDay, HTMLSelectElement);
     const startTime = getElement(FIELD.startTime, HTMLInputElement);
     const endDay = getElement(FIELD.endDay, HTMLSelectElement);
     const endTime = getElement(FIELD.endTime, HTMLInputElement);
-    const breakStartDay = getElement(FIELD.breakStartDay, HTMLSelectElement);
     const breakStartTime = getElement(FIELD.breakStartTime, HTMLInputElement);
-    const breakEndDay = getElement(FIELD.breakEndDay, HTMLSelectElement);
     const breakEndTime = getElement(FIELD.breakEndTime, HTMLInputElement);
     const workDayType = getElement(FIELD.workDayType, HTMLSelectElement);
     const leaveType = getElement(FIELD.leaveType, HTMLSelectElement);
@@ -400,9 +371,7 @@
       || !startTime
       || !endDay
       || !endTime
-      || !breakStartDay
       || !breakStartTime
-      || !breakEndDay
       || !breakEndTime
       || !workDayType
       || !leaveType
@@ -414,10 +383,6 @@
     assertSelected(pattern, expectedPattern, 'パターン');
     assertSelected(startDay, WORK.dayOffset, '出勤予定日');
     assertSelected(endDay, WORK.dayOffset, '退勤予定日');
-    if (breakPlan.enabled) {
-      assertSelected(breakStartDay, WORK.dayOffset, '休憩開始日');
-      assertSelected(breakEndDay, WORK.dayOffset, '休憩終了日');
-    }
     assertSelected(workDayType, WORK.workDayType, '勤務日種別');
     assertSelected(leaveType, WORK.noLeave, '休暇区分');
 
@@ -427,20 +392,11 @@
     if (normalizeFormTime(endTime.value) !== formatFormTime(shift.end)) {
       throw new Error(`退勤予定を${formatShiftTime(shift.end)}に設定できませんでした。`);
     }
-    if (breakPlan.enabled) {
-      if (normalizeFormTime(breakStartTime.value) !== formatFormTime(breakPlan.start)) {
-        throw new Error(`休憩開始を${formatShiftTime(breakPlan.start)}に設定できませんでした。`);
-      }
-      if (normalizeFormTime(breakEndTime.value) !== formatFormTime(breakPlan.end)) {
-        throw new Error(`休憩終了を${formatShiftTime(breakPlan.end)}に設定できませんでした。`);
-      }
-    } else {
-      if (normalizeFormTime(breakStartTime.value) !== '') {
-        throw new Error('休憩なしの設定ですが、休憩開始欄を空にできませんでした。');
-      }
-      if (normalizeFormTime(breakEndTime.value) !== '') {
-        throw new Error('休憩なしの設定ですが、休憩終了欄を空にできませんでした。');
-      }
+    if (normalizeFormTime(breakStartTime.value) !== '') {
+      throw new Error('休憩開始欄を空にできませんでした。');
+    }
+    if (normalizeFormTime(breakEndTime.value) !== '') {
+      throw new Error('休憩終了欄を空にできませんでした。');
     }
     if (remark.value !== WORK.remark) {
       throw new Error(`申請メッセージを「${WORK.remark}」に設定できませんでした。`);
@@ -448,14 +404,6 @@
   }
 
   async function fillWorkForm(shift) {
-    const settings = loadUserSettings();
-    if (!settings) {
-      throw new Error(
-        '休憩時間の設定が見つかりません。月間スケジュール画面の「設定」で休憩時間を設定してください。',
-      );
-    }
-    const breakPlan = resolveBreakForShift(shift, settings);
-
     const pattern = getElement(FIELD.pattern, HTMLSelectElement);
     if (!pattern) throw new Error('パターン欄が見つかりません。');
 
@@ -471,9 +419,7 @@
     const startTime = getElement(FIELD.startTime, HTMLInputElement);
     const endDay = getElement(FIELD.endDay, HTMLSelectElement);
     const endTime = getElement(FIELD.endTime, HTMLInputElement);
-    const breakStartDay = getElement(FIELD.breakStartDay, HTMLSelectElement);
     const breakStartTime = getElement(FIELD.breakStartTime, HTMLInputElement);
-    const breakEndDay = getElement(FIELD.breakEndDay, HTMLSelectElement);
     const breakEndTime = getElement(FIELD.breakEndTime, HTMLInputElement);
     const workDayType = getElement(FIELD.workDayType, HTMLSelectElement);
     const leaveType = getElement(FIELD.leaveType, HTMLSelectElement);
@@ -483,9 +429,7 @@
       || !startTime
       || !endDay
       || !endTime
-      || !breakStartDay
       || !breakStartTime
-      || !breakEndDay
       || !breakEndTime
       || !workDayType
       || !leaveType
@@ -498,23 +442,17 @@
     setTextInput(startTime, formatFormTime(shift.start), '出勤予定');
     setSelectOption(endDay, WORK.dayOffset, '退勤予定日');
     setTextInput(endTime, formatFormTime(shift.end), '退勤予定');
-    if (breakPlan.enabled) {
-      setSelectOption(breakStartDay, WORK.dayOffset, '休憩開始日');
-      setTextInput(breakStartTime, formatFormTime(breakPlan.start), '休憩開始');
-      setSelectOption(breakEndDay, WORK.dayOffset, '休憩終了日');
-      setTextInput(breakEndTime, formatFormTime(breakPlan.end), '休憩終了');
-    } else {
-      // パターン選択で自動補完された休憩が残らないよう、明示的に空にする。
-      setTextInput(breakStartTime, '', '休憩開始');
-      setTextInput(breakEndTime, '', '休憩終了');
-    }
+    // 休憩は申請しない。パターン選択で自動補完された休憩や、前の予定の休憩が
+    // その日のシフトと合わないまま残らないよう、明示的に空にする。
+    setTextInput(breakStartTime, '', '休憩開始');
+    setTextInput(breakEndTime, '', '休憩終了');
     setSelectOption(workDayType, WORK.workDayType, '勤務日種別');
     setSelectOption(leaveType, WORK.noLeave, '休暇区分');
     setTextInput(remark, WORK.remark, '申請メッセージ');
 
-    verifyWorkResult(shift, expectedPattern, breakPlan);
+    verifyWorkResult(shift, expectedPattern);
 
-    return { breakPlan, expectedPattern, settings };
+    return { expectedPattern };
   }
 
   function createDailyHelper() {
@@ -622,22 +560,15 @@
 
     if (workButton) {
       workButton.addEventListener('click', async () => {
-        const dailySettings = loadUserSettings();
-        if (!dailySettings) {
-          status.style.color = '#b3261e';
-          status.textContent = '休憩時間の設定が見つかりません。月間スケジュール画面の「設定」で休憩時間を設定してください。';
-          return;
-        }
-        const dailyBreakSummary = describeBreakSummary(dailySettings);
         const approved = window.confirm(
-          `${planned.day}日のフォームへ勤務時間 ${planned.shift.label}、休憩${dailyBreakSummary}、申請メッセージを入力します。\n`
+          `${planned.day}日のフォームへ勤務時間 ${planned.shift.label}と申請メッセージを入力します。休憩欄は空にします。\n`
           + 'KING OF TIMEの申請ボタンは自動で押しません。よろしいですか？',
         );
         if (!approved) return;
         await runWithStatus(
           workButton,
           () => fillWorkForm(planned.shift),
-          `勤務時間・休憩${dailyBreakSummary}・申請メッセージを入力しました。内容を確認してからサイトの申請ボタンを押してください。`,
+          '勤務時間・申請メッセージを入力しました。休憩が必要なら入力し、内容を確認してからサイトの申請ボタンを押してください。',
         );
       });
     }
@@ -818,19 +749,11 @@
     return `${time.hour}:${String(time.minute).padStart(2, '0')}`;
   }
 
-  // 画面に見せる休憩の要約。設定が未保存・破損のときは「なし」と区別する。
-  // 「休憩をとらない」と「設定が読めない」は利用者にとって別の事実のため。
   // ダイアログの明細を先頭数件に切り詰める。件数が増えると、行動に必要な指示が
   // リストに押し出されて画面外へ消えるため。
   function summarizeLines(lines, limit = 3) {
     if (lines.length <= limit) return lines.join('\n');
     return `${lines.slice(0, limit).join('\n')}\n…ほか${lines.length - limit}件`;
-  }
-
-  function describeBreakSummary(settings) {
-    if (!settings) return '未設定';
-    if (!settings.breakEnabled) return 'なし';
-    return `${formatShiftTime(settings.breakStart)}～${formatShiftTime(settings.breakEnd)}`;
   }
 
   function parseTimeRange(rawValue, lineNumber) {
@@ -916,36 +839,11 @@
     };
   }
 
-  function toTotalMinutes(time) {
-    return (time.hour * 60) + time.minute;
-  }
-
-  function isValidClockTime(time) {
-    return Boolean(time)
-      && Number.isInteger(time.hour)
-      && time.hour >= 0
-      && time.hour <= 23
-      && Number.isInteger(time.minute)
-      && time.minute >= 0
-      && time.minute <= 59;
-  }
-
+  // version 1 は休憩時間を持っていた旧形式。休憩の項目は捨て、自動申請の選択だけ引き継ぐ。
   function validateUserSettings(settings) {
-    if (!settings || settings.version !== 1) return null;
-    if (typeof settings.breakEnabled !== 'boolean') return null;
+    if (!settings || ![1, 2].includes(settings.version)) return null;
     if (typeof settings.autoSubmitEnabled !== 'boolean') return null;
-    if (!isValidClockTime(settings.breakStart)) return null;
-    if (!isValidClockTime(settings.breakEnd)) return null;
-    // 休憩なし設定でも時刻は妥当に保つ。あとで休憩ありへ戻したときに壊れないため。
-    if (toTotalMinutes(settings.breakStart) >= toTotalMinutes(settings.breakEnd)) return null;
-
-    return {
-      version: 1,
-      breakEnabled: settings.breakEnabled,
-      breakStart: { hour: settings.breakStart.hour, minute: settings.breakStart.minute },
-      breakEnd: { hour: settings.breakEnd.hour, minute: settings.breakEnd.minute },
-      autoSubmitEnabled: settings.autoSubmitEnabled,
-    };
+    return { version: 2, autoSubmitEnabled: settings.autoSubmitEnabled };
   }
 
   function saveUserSettings(settings) {
@@ -958,11 +856,14 @@
   function loadUserSettings() {
     try {
       const rawValue = localStorage.getItem(USER_SETTINGS_STORAGE_KEY);
-      return rawValue ? validateUserSettings(JSON.parse(rawValue)) : null;
+      if (!rawValue) return { ...DEFAULT_USER_SETTINGS };
+      const settings = validateUserSettings(JSON.parse(rawValue));
+      if (settings) return settings;
+      console.warn('[KOT申請ヘルパー] 保存した設定が不正なため、既定値を使います。');
     } catch (error) {
-      console.warn('[KOT申請ヘルパー] 保存した設定を読み込めませんでした。', error);
-      return null;
+      console.warn('[KOT申請ヘルパー] 保存した設定を読み込めませんでした。既定値を使います。', error);
     }
+    return { ...DEFAULT_USER_SETTINGS };
   }
 
   function validateStoredPlan(plan) {
@@ -1413,12 +1314,11 @@
       const currentDay = getCurrentRunDay(currentRun);
       const confirmed = window.confirm(
         `${currentDay}日の申請履歴に「申請をキャンセル」と、`
-        + '予定時間・休憩・申請メッセージが正しく表示されていることを確認しましたか？',
+        + '予定時間・申請メッセージが正しく表示されていることを確認しましたか？',
       );
       if (!confirmed) return;
 
-      const resumeSettings = loadUserSettings();
-      if (!resumeSettings?.autoSubmitEnabled) {
+      if (!loadUserSettings().autoSubmitEnabled) {
         pauseWorkdayRun('連続申請の設定がOFFになったため停止しました。続けるには設定でONにしてください。');
         updateRunnerOverlay(
           '連続申請の設定がOFFになったため停止しました。続けるには設定でONにしてください。',
@@ -1629,10 +1529,9 @@
     }
 
     run = saveWorkdayRun({ ...run, status: 'ready-to-submit' });
-    const runnerBreakSummary = describeBreakSummary(filled.settings);
     for (let seconds = AUTO_SUBMIT_COUNTDOWN_SECONDS; seconds > 0; seconds -= 1) {
       updateRunnerOverlay(
-        `${getRunnerProgressText(run)}。${day}日 ${shift.label}\n休憩${runnerBreakSummary}・メッセージ入力済み。${seconds}秒後に実際の申請を送信します。`,
+        `${getRunnerProgressText(run)}。${day}日 ${shift.label}\nメッセージ入力済み（休憩欄は空）。${seconds}秒後に実際の申請を送信します。`,
         '#9a5700',
       );
       await wait(1_000);
@@ -1651,8 +1550,7 @@
     }
 
     // 直前まで別タブで設定をOFFにされている可能性があるため、送信の瞬間に読み直す。
-    const submitTimeSettings = loadUserSettings();
-    if (!submitTimeSettings?.autoSubmitEnabled) {
+    if (!loadUserSettings().autoSubmitEnabled) {
       pauseWorkdayRun('連続申請の設定がOFFになったため停止しました。続けるには設定でONにしてください。');
       updateRunnerOverlay(
         '連続申請の設定がOFFになったため停止しました。続けるには設定でONにしてください。',
@@ -1663,7 +1561,7 @@
 
     // パターン選択直後の検証から時間が経っているため、送信直前にもう一度確認する。
     try {
-      verifyWorkResult(shift, filled.expectedPattern, filled.breakPlan);
+      verifyWorkResult(shift, filled.expectedPattern);
     } catch (error) {
       pauseWorkdayRun(`送信直前の確認に失敗したため停止しました：${error.message}`);
       updateRunnerOverlay(`送信直前の確認に失敗したため停止しました：${error.message}`, '#b3261e');
@@ -2590,20 +2488,8 @@
     render();
   }
 
-  function formatTimeInputValue(time) {
-    if (!time) return '';
-    return `${String(time.hour).padStart(2, '0')}:${String(time.minute).padStart(2, '0')}`;
-  }
-
-  function parseTimeInputValue(value) {
-    const matched = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? '').trim());
-    if (!matched) return null;
-    return { hour: Number(matched[1]), minute: Number(matched[2]) };
-  }
-
   function createSettingsSection(onSaved) {
-    const storedSettings = loadUserSettings();
-    const initialSettings = storedSettings ?? DEFAULT_USER_SETTINGS;
+    const initialSettings = loadUserSettings();
 
     const section = document.createElement('div');
     Object.assign(section.style, {
@@ -2618,70 +2504,13 @@
     heading.textContent = '設定';
     Object.assign(heading.style, { fontSize: '13px', fontWeight: '700', marginBottom: '6px' });
 
-    const guidance = document.createElement('div');
-    Object.assign(guidance.style, { fontSize: '12px', lineHeight: '1.45', marginBottom: '8px' });
-    if (storedSettings) {
-      guidance.style.color = '#17212b';
-      guidance.textContent = '自分の休憩時間を設定しています。変更したらそのつど保存してください。';
-    } else {
-      guidance.style.color = '#9a5700';
-      guidance.textContent = 'まず自分の休憩時間を設定して保存してください。設定するまで申請の処理はできません。';
-    }
-
-    const breakEnabled = document.createElement('input');
-    breakEnabled.type = 'checkbox';
-    breakEnabled.checked = initialSettings.breakEnabled;
-    breakEnabled.id = 'kot-settings-break-enabled';
-
-    const breakEnabledLabel = document.createElement('label');
-    breakEnabledLabel.htmlFor = breakEnabled.id;
-    breakEnabledLabel.textContent = ' 休憩をとる';
-    Object.assign(breakEnabledLabel.style, { fontSize: '12px' });
-
-    const breakEnabledRow = document.createElement('div');
-    breakEnabledRow.append(breakEnabled, breakEnabledLabel);
-
-    const timesRow = document.createElement('div');
-    Object.assign(timesRow.style, {
-      display: 'flex',
-      gap: '8px',
-      alignItems: 'flex-end',
-      marginTop: '8px',
+    const breakNote = document.createElement('div');
+    breakNote.textContent = '休憩は申請しません（休憩欄は空にします）。打刻時にKING OF TIMEが自動で付けます。必要な日は申請画面で入力してください。';
+    Object.assign(breakNote.style, {
+      fontSize: '11px',
+      lineHeight: '1.4',
+      color: '#5b6770',
     });
-
-    const createTimeField = (fieldId, labelText, time) => {
-      const wrapper = document.createElement('div');
-      Object.assign(wrapper.style, { flex: '1' });
-      const label = document.createElement('label');
-      label.htmlFor = fieldId;
-      label.textContent = labelText;
-      Object.assign(label.style, {
-        display: 'block',
-        marginBottom: '4px',
-        fontSize: '12px',
-        fontWeight: '700',
-      });
-      const input = document.createElement('input');
-      input.id = fieldId;
-      input.type = 'time';
-      input.value = formatTimeInputValue(time);
-      Object.assign(input.style, {
-        width: '100%',
-        padding: '6px',
-        border: '1px solid #aeb8c2',
-        borderRadius: '6px',
-        boxSizing: 'border-box',
-      });
-      wrapper.append(label, input);
-      return { wrapper, input };
-    };
-
-    // 未設定の人には共通の初期値（12:00～13:00）を見せず、自分の時刻を入力させる。
-    const initialBreakStart = storedSettings ? storedSettings.breakStart : null;
-    const initialBreakEnd = storedSettings ? storedSettings.breakEnd : null;
-    const breakStartField = createTimeField('kot-settings-break-start', '休憩開始', initialBreakStart);
-    const breakEndField = createTimeField('kot-settings-break-end', '休憩終了', initialBreakEnd);
-    timesRow.append(breakStartField.wrapper, breakEndField.wrapper);
 
     const autoSubmit = document.createElement('input');
     autoSubmit.type = 'checkbox';
@@ -2694,7 +2523,7 @@
     Object.assign(autoSubmitLabel.style, { fontSize: '12px' });
 
     const autoSubmitRow = document.createElement('div');
-    Object.assign(autoSubmitRow.style, { marginTop: '10px' });
+    Object.assign(autoSubmitRow.style, { marginTop: '8px' });
     autoSubmitRow.append(autoSubmit, autoSubmitLabel);
 
     const autoSubmitNote = document.createElement('div');
@@ -2729,36 +2558,11 @@
       lineHeight: '1.45',
     });
 
-    const syncTimeFieldState = () => {
-      const disabled = !breakEnabled.checked;
-      breakStartField.input.disabled = disabled;
-      breakEndField.input.disabled = disabled;
-      timesRow.style.opacity = disabled ? '0.5' : '1';
-    };
-    syncTimeFieldState();
-    breakEnabled.addEventListener('change', syncTimeFieldState);
-
     saveButton.addEventListener('click', () => {
-      const start = parseTimeInputValue(breakStartField.input.value);
-      const end = parseTimeInputValue(breakEndField.input.value);
-      if (!start || !end) {
-        settingsStatus.style.color = '#b3261e';
-        settingsStatus.textContent = '休憩開始と休憩終了の両方を入力してください。';
-        return;
-      }
-      if (toTotalMinutes(start) >= toTotalMinutes(end)) {
-        settingsStatus.style.color = '#b3261e';
-        settingsStatus.textContent = '休憩終了は休憩開始より後の時刻にしてください。';
-        return;
-      }
-
       let saved;
       try {
         saved = saveUserSettings({
-          version: 1,
-          breakEnabled: breakEnabled.checked,
-          breakStart: start,
-          breakEnd: end,
+          version: 2,
           autoSubmitEnabled: autoSubmit.checked,
         });
       } catch (error) {
@@ -2768,18 +2572,14 @@
         return;
       }
 
-      guidance.style.color = '#17212b';
-      guidance.textContent = '自分の休憩時間を設定しています。変更したらそのつど保存してください。';
       settingsStatus.style.color = '#137333';
-      settingsStatus.textContent = `保存しました。休憩：${describeBreakSummary(saved)}`;
+      settingsStatus.textContent = `保存しました。連続申請：${saved.autoSubmitEnabled ? 'ON' : 'OFF'}`;
       onSaved(saved);
     });
 
     section.append(
       heading,
-      guidance,
-      breakEnabledRow,
-      timesRow,
+      breakNote,
       autoSubmitRow,
       autoSubmitNote,
       saveButton,
@@ -3255,7 +3055,7 @@
           status.textContent = `${result.successes.length}日を反映、${result.failures.length}日で失敗しました。赤枠の行を確認してください。申請は送信していません。`;
         } else {
           status.style.color = '#137333';
-          status.textContent = `${result.successes.length}日分を反映しました。青・緑枠の行と休憩予定を確認し、問題なければKING OF TIMEの「申請する」を押してください。`;
+          status.textContent = `${result.successes.length}日分を反映しました。青・緑枠の行を確認し、問題なければKING OF TIMEの「申請する」を押してください。`;
         }
       } catch (error) {
         console.error('[KOT月間入力ヘルパー]', error);
@@ -3614,19 +3414,14 @@
           throw new Error(`${invalidDays.join(', ')}日は入力した勤務計画に含まれていません。`);
         }
 
-        const runnerSettings = loadUserSettings();
-        if (!runnerSettings) {
-          throw new Error('先に「設定」で休憩時間を設定してください。');
-        }
-        if (!runnerSettings.autoSubmitEnabled) {
+        if (!loadUserSettings().autoSubmitEnabled) {
           throw new Error('「連続申請（自動で実際に申請する）を使う」がOFFです。設定を確認してから、もう一度プレビューを作成してください。');
         }
-        const breakSummary = describeBreakSummary(runnerSettings);
         const details = summarizeLines(queue.map((day) => `${day}日 ${shiftsByDay.get(day).label}`));
         const confirmation = window.prompt(
           '実行する場合だけ「申請する」と入力してください。\n\n'
           + `次の${queue.length}日分を自動で開き、入力後${AUTO_SUBMIT_COUNTDOWN_SECONDS}秒待って実際に申請します。\n`
-          + `休憩：${breakSummary}\n申請メッセージ：${WORK.remark}\n\n`
+          + `休憩：申請しない（休憩欄は空）\n申請メッセージ：${WORK.remark}\n\n`
           + `${details}`,
           '',
         );

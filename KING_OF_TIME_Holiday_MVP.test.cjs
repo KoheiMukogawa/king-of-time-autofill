@@ -19,7 +19,7 @@ assert.equal(
 assert.doesNotMatch(
   source,
   /WORK\.break/,
-  'WORK から休憩時間の定数を削除してください。休憩は設定から解決します。',
+  'WORK から休憩時間の定数を削除してください。休憩は申請しません。',
 );
 assert.doesNotMatch(
   source,
@@ -62,7 +62,6 @@ const instrumentedSource = source.replace(
     validateUserSettings,
     saveUserSettings,
     loadUserSettings,
-    resolveBreakForShift,
   };
   return;
 ${initMarker}`,
@@ -103,7 +102,6 @@ const {
   validateUserSettings,
   saveUserSettings,
   loadUserSettings,
-  resolveBreakForShift,
 } = context.__KOT_TEST_API__;
 const entries = (value, lastDay = 31) => [...parseShiftSchedule(value, lastDay)]
   .map(([day, shift]) => [day, shift.label]);
@@ -284,16 +282,13 @@ assert.equal(
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const validSettings = {
-  version: 1,
-  breakEnabled: true,
-  breakStart: { hour: 12, minute: 30 },
-  breakEnd: { hour: 13, minute: 30 },
-  autoSubmitEnabled: false,
+  version: 2,
+  autoSubmitEnabled: true,
 };
 
 assert.equal(DEFAULT_USER_SETTINGS.autoSubmitEnabled, false, '自動申請の既定値は false でなければなりません。');
-assert.equal(DEFAULT_USER_SETTINGS.breakEnabled, true);
 assert.ok(validateUserSettings(DEFAULT_USER_SETTINGS), '既定値は検証を通らなければなりません。');
+assert.doesNotMatch(source, /breakEnabled|resolveBreakForShift/, '休憩の設定は廃止しました。');
 
 assert.deepEqual(plain(validateUserSettings(validSettings)), validSettings);
 
@@ -303,124 +298,50 @@ assert.deepEqual(
   validSettings,
 );
 
-// 不正な値は null
+// 休憩時間を持っていた旧形式（version 1）は、自動申請の選択だけ引き継ぐ
+assert.deepEqual(
+  plain(validateUserSettings({
+    version: 1,
+    breakEnabled: true,
+    breakStart: { hour: 12, minute: 0 },
+    breakEnd: { hour: 13, minute: 0 },
+    autoSubmitEnabled: true,
+  })),
+  { version: 2, autoSubmitEnabled: true },
+);
+
+// 不正な値は拒否する
 assert.equal(validateUserSettings(null), null);
 assert.equal(validateUserSettings({}), null);
-assert.equal(validateUserSettings({ ...validSettings, version: 2 }), null);
-assert.equal(validateUserSettings({ ...validSettings, breakEnabled: 'true' }), null);
+assert.equal(validateUserSettings({ ...validSettings, version: 3 }), null);
 assert.equal(validateUserSettings({ ...validSettings, autoSubmitEnabled: 1 }), null);
-assert.equal(validateUserSettings({ ...validSettings, breakStart: { hour: 24, minute: 0 } }), null);
-assert.equal(validateUserSettings({ ...validSettings, breakStart: { hour: 12, minute: 60 } }), null);
-assert.equal(validateUserSettings({ ...validSettings, breakStart: { hour: 12.5, minute: 0 } }), null);
-assert.equal(validateUserSettings({ ...validSettings, breakEnd: null }), null);
-
-// 休憩の開始と終了が逆転・同一なら拒否する
-assert.equal(
-  validateUserSettings({ ...validSettings, breakStart: { hour: 14, minute: 0 } }),
-  null,
-  '休憩開始が終了より後の設定は拒否しなければなりません。',
-);
-assert.equal(
-  validateUserSettings({
-    ...validSettings,
-    breakStart: { hour: 12, minute: 0 },
-    breakEnd: { hour: 12, minute: 0 },
-  }),
-  null,
-  '休憩開始と終了が同じ設定は拒否しなければなりません。',
-);
-
-// 休憩なし設定でも休憩時刻自体は妥当でなければならない
-assert.ok(validateUserSettings({ ...validSettings, breakEnabled: false }));
 
 // 保存と読み込み
 localStorageStub.clear();
-assert.equal(loadUserSettings(), null, '未設定のときは null を返さなければなりません。');
+assert.deepEqual(
+  plain(loadUserSettings()),
+  { version: 2, autoSubmitEnabled: false },
+  '未設定のときは既定値（自動申請OFF）を返さなければなりません。',
+);
 
 saveUserSettings(validSettings);
 assert.deepEqual(plain(loadUserSettings()), validSettings);
 
-assert.throws(() => saveUserSettings({ ...validSettings, breakEnd: null }), /不正/);
+assert.throws(() => saveUserSettings({ ...validSettings, autoSubmitEnabled: null }), /不正/);
 
-// 壊れた保存値は null にフォールバックする
+// 壊れた保存値は既定値（自動申請OFF）にフォールバックする
 // vm 内の loadUserSettings が意図どおり console.warn を呼ぶことを確認する。
 // 成功時の出力を汚さないよう、この区間だけ warn を差し替える。
 const originalWarn = console.warn;
 console.warn = () => {};
 try {
   localStorageStub.setItem('kot-user-settings-v1', 'not json');
-  assert.equal(loadUserSettings(), null);
-  localStorageStub.setItem('kot-user-settings-v1', '{"version":99}');
-  assert.equal(loadUserSettings(), null);
+  assert.equal(loadUserSettings().autoSubmitEnabled, false);
+  localStorageStub.setItem('kot-user-settings-v1', '{"version":99,"autoSubmitEnabled":true}');
+  assert.equal(loadUserSettings().autoSubmitEnabled, false);
 } finally {
   console.warn = originalWarn;
 }
 localStorageStub.clear();
-
-// --- 休憩の解決 ---
-const makeShift = (startHour, endHour, label) => ({
-  start: { hour: startHour, minute: 0, totalMinutes: startHour * 60 },
-  end: { hour: endHour, minute: 0, totalMinutes: endHour * 60 },
-  label,
-});
-
-const noonBreak = {
-  version: 1,
-  breakEnabled: true,
-  breakStart: { hour: 12, minute: 0 },
-  breakEnd: { hour: 13, minute: 0 },
-  autoSubmitEnabled: false,
-};
-
-// 勤務時間が休憩を含む
-assert.deepEqual(
-  plain(resolveBreakForShift(makeShift(9, 18, '9:00～18:00'), noonBreak)),
-  {
-    enabled: true,
-    start: { hour: 12, minute: 0, totalMinutes: 720 },
-    end: { hour: 13, minute: 0, totalMinutes: 780 },
-  },
-);
-
-// 勤務の開始・終了が休憩とちょうど接する場合は許容する
-assert.equal(resolveBreakForShift(makeShift(12, 13, '12:00～13:00'), noonBreak).enabled, true);
-
-// 勤務時間が休憩を含まない場合は止まる
-assert.throws(
-  () => resolveBreakForShift(makeShift(9, 13, '9:00～13:00'), {
-    ...noonBreak,
-    breakStart: { hour: 13, minute: 30 },
-    breakEnd: { hour: 14, minute: 30 },
-  }),
-  /休憩13:30～14:30を設定できません/,
-);
-assert.throws(
-  () => resolveBreakForShift(makeShift(14, 18, '14:00～18:00'), noonBreak),
-  /勤務時間14:00～18:00に休憩12:00～13:00を設定できません。/,
-);
-
-// 短時間勤務でも、自分の休憩時刻を設定していれば通る
-assert.deepEqual(
-  plain(resolveBreakForShift(makeShift(9, 13, '9:00～13:00'), {
-    ...noonBreak,
-    breakStart: { hour: 10, minute: 30 },
-    breakEnd: { hour: 11, minute: 0 },
-  })),
-  {
-    enabled: true,
-    start: { hour: 10, minute: 30, totalMinutes: 630 },
-    end: { hour: 11, minute: 0, totalMinutes: 660 },
-  },
-);
-
-// 休憩なし設定では勤務時間に関わらず休憩を入れない
-assert.deepEqual(
-  plain(resolveBreakForShift(makeShift(9, 13, '9:00～13:00'), { ...noonBreak, breakEnabled: false })),
-  { enabled: false },
-);
-assert.deepEqual(
-  plain(resolveBreakForShift(makeShift(9, 18, '9:00～18:00'), { ...noonBreak, breakEnabled: false })),
-  { enabled: false },
-);
 
 console.log('Shift, date, plan, batch-state, runner-state, cancellation, and settings tests passed.');
